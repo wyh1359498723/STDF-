@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using StdfAnalyzer.Models;
 
@@ -9,7 +11,7 @@ public class WaferMapControl : Control
 {
     public static readonly DependencyProperty PartsProperty =
         DependencyProperty.Register(nameof(Parts), typeof(List<PartData>), typeof(WaferMapControl),
-            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnPartsChanged));
 
     public List<PartData>? Parts
     {
@@ -19,83 +21,272 @@ public class WaferMapControl : Control
 
     private static readonly Brush PassBrush = new SolidColorBrush(Color.FromRgb(76, 175, 80));
     private static readonly Brush FailBrush = new SolidColorBrush(Color.FromRgb(244, 67, 54));
-    private static readonly Pen BorderPen = new(new SolidColorBrush(Color.FromRgb(40, 40, 40)), 0.5);
+    private static readonly Brush BgBrush = new SolidColorBrush(Color.FromRgb(30, 30, 30));
+    private static readonly Brush TextBrush = Brushes.White;
+    private static readonly Brush TextShadowBrush = new SolidColorBrush(Color.FromArgb(160, 0, 0, 0));
     private static readonly Typeface LabelTypeface = new("Segoe UI");
 
     static WaferMapControl()
     {
         PassBrush.Freeze();
         FailBrush.Freeze();
-        BorderPen.Freeze();
+        BgBrush.Freeze();
+        TextShadowBrush.Freeze();
     }
+
+    private double _zoom = 1.0;
+    private double _panX, _panY;
+    private Point _lastMouse;
+    private bool _isPanning;
+    private double _dpi = 1.0;
+
+    // Cached map geometry (frozen DrawingGroup for GPU-friendly rendering)
+    private DrawingGroup? _mapCache;
+    private Dictionary<long, PartData>? _coordLookup;
+    private int _minX, _minY, _rangeX, _rangeY;
+    private double _baseCellSize;
+    private bool _layoutDirty = true;
+
+    // Cached text objects per SBin value
+    private readonly Dictionary<ushort, FormattedText> _textCache = new();
+    private readonly Dictionary<ushort, FormattedText> _shadowTextCache = new();
+    private double _cachedFontSize;
+
+    private const double ZoomMin = 0.5;
+    private const double ZoomMax = 40.0;
+    private const double ZoomStep = 1.15;
+    private const double MinCellForText = 18.0;
+    private const double MapPadding = 40.0;
+
+    public WaferMapControl()
+    {
+        ClipToBounds = true;
+        Focusable = true;
+        SizeChanged += (_, _) => _layoutDirty = true;
+    }
+
+    private static void OnPartsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var ctrl = (WaferMapControl)d;
+        ctrl._zoom = 1.0;
+        ctrl._panX = 0;
+        ctrl._panY = 0;
+        ctrl._mapCache = null;
+        ctrl._coordLookup = null;
+        ctrl._layoutDirty = true;
+        ctrl._textCache.Clear();
+        ctrl._shadowTextCache.Clear();
+        ctrl.InvalidateVisual();
+    }
+
+    private void RebuildCache()
+    {
+        _mapCache = null;
+        _coordLookup = null;
+        _layoutDirty = false;
+
+        var parts = Parts;
+        if (parts == null || parts.Count == 0) return;
+
+        _minX = int.MaxValue;
+        _minY = int.MaxValue;
+        int maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var p in parts)
+        {
+            if (p.XCoord < _minX) _minX = p.XCoord;
+            if (p.XCoord > maxX) maxX = p.XCoord;
+            if (p.YCoord < _minY) _minY = p.YCoord;
+            if (p.YCoord > maxY) maxY = p.YCoord;
+        }
+        _rangeX = maxX - _minX + 1;
+        _rangeY = maxY - _minY + 1;
+        if (_rangeX <= 0 || _rangeY <= 0) return;
+
+        double availW = ActualWidth - MapPadding * 2;
+        double availH = ActualHeight - MapPadding * 2 - 30;
+        _baseCellSize = Math.Max(Math.Min(availW / _rangeX, availH / _rangeY), 1.0);
+
+        // Unit-coordinate pen: border width relative to 1-unit cell
+        var unitPen = new Pen(new SolidColorBrush(Color.FromRgb(50, 50, 50)), 0.06);
+        unitPen.Freeze();
+
+        _coordLookup = new Dictionary<long, PartData>(parts.Count);
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            foreach (var p in parts)
+            {
+                int dx = p.XCoord - _minX;
+                int dy = p.YCoord - _minY;
+                Brush fill = p.Pass ? PassBrush : FailBrush;
+                dc.DrawRectangle(fill, unitPen, new Rect(dx, dy, 1, 1));
+                _coordLookup[CoordKey(dx, dy)] = p;
+            }
+        }
+        dg.Freeze();
+        _mapCache = dg;
+    }
+
+    private static long CoordKey(int dx, int dy) => ((long)dy << 32) | (uint)dx;
+
+    #region Mouse Interaction
+
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (Parts == null || Parts.Count == 0) return;
+
+        var mousePos = e.GetPosition(this);
+        double oldZoom = _zoom;
+        _zoom = Math.Clamp(_zoom * (e.Delta > 0 ? ZoomStep : 1.0 / ZoomStep), ZoomMin, ZoomMax);
+
+        double s = _zoom / oldZoom;
+        _panX = mousePos.X - s * (mousePos.X - _panX);
+        _panY = mousePos.Y - s * (mousePos.Y - _panY);
+
+        InvalidateVisual();
+        e.Handled = true;
+    }
+
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        if (Parts == null || Parts.Count == 0) return;
+        _lastMouse = e.GetPosition(this);
+        _isPanning = true;
+        CaptureMouse();
+        e.Handled = true;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_isPanning) return;
+        var pos = e.GetPosition(this);
+        _panX += pos.X - _lastMouse.X;
+        _panY += pos.Y - _lastMouse.Y;
+        _lastMouse = pos;
+        InvalidateVisual();
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        if (_isPanning) { _isPanning = false; ReleaseMouseCapture(); }
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        _zoom = 1.0;
+        _panX = 0;
+        _panY = 0;
+        InvalidateVisual();
+    }
+
+    #endregion
 
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
+        _dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
-        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null,
-            new Rect(0, 0, ActualWidth, ActualHeight));
+        dc.DrawRectangle(BgBrush, null, new Rect(0, 0, ActualWidth, ActualHeight));
 
         var parts = Parts;
         if (parts == null || parts.Count == 0)
         {
-            DrawCenteredText(dc, "无晶圆数据", ActualWidth / 2, ActualHeight / 2, 16, Brushes.Gray);
+            var ft = MakeText("无晶圆数据", 16, Brushes.Gray);
+            dc.DrawText(ft, new Point((ActualWidth - ft.Width) / 2, (ActualHeight - ft.Height) / 2));
             return;
         }
 
-        int minX = parts.Min(p => p.XCoord);
-        int maxX = parts.Max(p => p.XCoord);
-        int minY = parts.Min(p => p.YCoord);
-        int maxY = parts.Max(p => p.YCoord);
+        if (_layoutDirty || _mapCache == null) RebuildCache();
+        if (_mapCache == null || _rangeX <= 0 || _rangeY <= 0) return;
 
-        int rangeX = maxX - minX + 1;
-        int rangeY = maxY - minY + 1;
+        double cellSize = _baseCellSize * _zoom;
+        double baseOx = (ActualWidth - _baseCellSize * _rangeX) / 2;
+        double ox = baseOx * _zoom + _panX;
+        double oy = MapPadding * _zoom + _panY;
 
-        if (rangeX <= 0 || rangeY <= 0) return;
+        // Draw all die rectangles via cached frozen DrawingGroup + transform
+        dc.PushTransform(new MatrixTransform(cellSize, 0, 0, cellSize, ox, oy));
+        dc.DrawDrawing(_mapCache);
+        dc.Pop();
 
-        double margin = 40;
-        double availW = ActualWidth - margin * 2;
-        double availH = ActualHeight - margin * 2 - 30;
-
-        double cellW = availW / rangeX;
-        double cellH = availH / rangeY;
-        double cellSize = Math.Min(cellW, cellH);
-        cellSize = Math.Max(cellSize, 1);
-
-        double mapW = cellSize * rangeX;
-        double mapH = cellSize * rangeY;
-        double offsetX = (ActualWidth - mapW) / 2;
-        double offsetY = margin;
-
-        foreach (var p in parts)
+        // Draw SBin text only for visible cells when zoomed in enough
+        if (cellSize >= MinCellForText && _coordLookup != null)
         {
-            double x = offsetX + (p.XCoord - minX) * cellSize;
-            double y = offsetY + (p.YCoord - minY) * cellSize;
-            Brush fill = p.Pass ? PassBrush : FailBrush;
-            dc.DrawRectangle(fill, BorderPen, new Rect(x, y, cellSize, cellSize));
+            double fontSize = Math.Clamp(cellSize * 0.38, 7, 28);
+            EnsureTextCache(fontSize, parts);
+
+            int visMinDx = Math.Max(0, (int)Math.Floor(-ox / cellSize));
+            int visMaxDx = Math.Min(_rangeX - 1, (int)Math.Ceiling((ActualWidth - ox) / cellSize));
+            int visMinDy = Math.Max(0, (int)Math.Floor(-oy / cellSize));
+            int visMaxDy = Math.Min(_rangeY - 1, (int)Math.Ceiling((ActualHeight - oy) / cellSize));
+
+            for (int dy = visMinDy; dy <= visMaxDy; dy++)
+            {
+                for (int dx = visMinDx; dx <= visMaxDx; dx++)
+                {
+                    if (!_coordLookup.TryGetValue(CoordKey(dx, dy), out var p)) continue;
+
+                    if (_textCache.TryGetValue(p.SoftBin, out var ft))
+                    {
+                        double sx = ox + dx * cellSize + (cellSize - ft.Width) / 2;
+                        double sy = oy + dy * cellSize + (cellSize - ft.Height) / 2;
+
+                        if (_shadowTextCache.TryGetValue(p.SoftBin, out var shadow))
+                            dc.DrawText(shadow, new Point(sx + 0.8, sy + 0.8));
+                        dc.DrawText(ft, new Point(sx, sy));
+                    }
+                }
+            }
         }
 
-        double legendY = offsetY + mapH + 10;
-        double legendX = offsetX;
-        DrawLegendItem(dc, legendX, legendY, PassBrush, "Pass");
-        DrawLegendItem(dc, legendX + 80, legendY, FailBrush, "Fail");
+        // Legend
+        double legendY = oy + _rangeY * cellSize + 8;
+        if (legendY > 0 && legendY < ActualHeight)
+        {
+            dc.DrawRectangle(PassBrush, null, new Rect(ox, legendY, 12, 12));
+            var ftPass = MakeText("Pass", 11, Brushes.White);
+            dc.DrawText(ftPass, new Point(ox + 16, legendY + (12 - ftPass.Height) / 2));
+            dc.DrawRectangle(FailBrush, null, new Rect(ox + 60, legendY, 12, 12));
+            var ftFail = MakeText("Fail", 11, Brushes.White);
+            dc.DrawText(ftFail, new Point(ox + 76, legendY + (12 - ftFail.Height) / 2));
+        }
+
+        // Zoom indicator
+        if (Math.Abs(_zoom - 1.0) >= 0.01)
+        {
+            var ftZoom = MakeText($"{_zoom * 100:F0}%", 11, Brushes.Gray);
+            dc.DrawText(ftZoom, new Point(ActualWidth - ftZoom.Width - 12, ActualHeight - ftZoom.Height - 8));
+            var ftHint = MakeText("右键还原", 10, Brushes.DimGray);
+            dc.DrawText(ftHint, new Point(ActualWidth - ftZoom.Width - ftHint.Width - 20, ActualHeight - ftHint.Height - 8));
+        }
     }
 
-    private static void DrawLegendItem(DrawingContext dc, double x, double y, Brush color, string label)
+    private void EnsureTextCache(double fontSize, List<PartData> parts)
     {
-        dc.DrawRectangle(color, null, new Rect(x, y, 12, 12));
-        DrawCenteredText(dc, label, x + 20 + 25, y + 6, 11, Brushes.White, HorizontalAlignment.Left);
+        if (Math.Abs(fontSize - _cachedFontSize) < 0.5 && _textCache.Count > 0) return;
+
+        _textCache.Clear();
+        _shadowTextCache.Clear();
+        _cachedFontSize = fontSize;
+
+        var seenBins = new HashSet<ushort>();
+        foreach (var p in parts)
+        {
+            if (!seenBins.Add(p.SoftBin)) continue;
+            var text = p.SoftBin.ToString();
+            _textCache[p.SoftBin] = MakeText(text, fontSize, TextBrush);
+            _shadowTextCache[p.SoftBin] = MakeText(text, fontSize, TextShadowBrush);
+        }
     }
 
-    private static void DrawCenteredText(DrawingContext dc, string text, double x, double y, double size,
-        Brush brush, HorizontalAlignment align = HorizontalAlignment.Center)
+    private FormattedText MakeText(string text, double size, Brush brush)
     {
-        var ft = new FormattedText(text, System.Globalization.CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, LabelTypeface, size, brush,
-            VisualTreeHelper.GetDpi(new DrawingVisual()).PixelsPerDip);
-
-        double drawX = align == HorizontalAlignment.Center ? x - ft.Width / 2 : x;
-        double drawY = y - ft.Height / 2;
-        dc.DrawText(ft, new Point(drawX, drawY));
+        return new FormattedText(text, CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, LabelTypeface, size, brush, _dpi);
     }
 }
