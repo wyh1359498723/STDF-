@@ -188,44 +188,105 @@ public class StdfParser
         uint testNum = ReadUInt32(data, 0);
         byte siteNum = data[5]; // head_num(1) + site_num at offset 5
         byte testFlg = data[6];
-        byte parmFlg = data[7];
+        _ = data[7]; // PARM_FLG（限值由 OPT_FLAG 段解析）
         float result = ReadFloat(data, 8);
 
         // Skip invalid tests
         if ((testFlg & 0x10) != 0) return;
 
-        // Read test name
         int offset = 12;
         string testName = ReadCString(data, ref offset);
+        _ = offset < data.Length ? ReadCString(data, ref offset) : ""; // ALARM_ID
 
-        // Read alarm_id
-        string alarmId = offset < data.Length ? ReadCString(data, ref offset) : "";
+        ParsePtrOptionalTail(data, ref offset, out var loLimit, out var hiLimit, out var units);
 
-        // Read optional info byte if present
-        if (offset < data.Length)
+        MergeTestInfo(testNum, testName, loLimit, hiLimit, units);
+
+        if (_activeParts.TryGetValue(siteNum, out var partKey) &&
+            _partDataMap.TryGetValue(partKey, out var part))
         {
-            byte optFlag = data[offset++];
+            part.TestResults[testNum] = result;
         }
+    }
 
-        // Skip RES_SCAL, LLM_SCAL, HLM_SCAL, LO_SPEC, HI_SPEC if present
-        // We focus on lo_limit and hi_limit from parm_flg
+    /// <summary>
+    /// STDF V4 PTR：ALARM_ID 之后为 OPT_FLAG、RES_SCAL、LLM_SCAL、HLM_SCAL、LO_LIMIT、HI_LIMIT、UNITS…
+    /// 若仅 8 字节且无 OPT_FLAG，则为旧式直接跟两个 R4 限值（无数值比例）。
+    /// </summary>
+    private void ParsePtrOptionalTail(byte[] data, ref int offset, out float? loLimit, out float? hiLimit,
+        out string units)
+    {
+        loLimit = null;
+        hiLimit = null;
+        units = "";
 
-        float? loLimit = null;
-        float? hiLimit = null;
+        int remaining = data.Length - offset;
+        if (remaining <= 0) return;
 
-        // Parse limits based on parm_flg
-        if ((parmFlg & 0x40) == 0 && offset + 4 <= data.Length)
+        // 极简记录：仅 8 字节 = LO_LIMIT + HI_LIMIT，无 OPT_FLAG 与比例
+        if (remaining == 8)
         {
             loLimit = ReadFloat(data, offset);
             offset += 4;
-        }
-        if ((parmFlg & 0x80) == 0 && offset + 4 <= data.Length)
-        {
             hiLimit = ReadFloat(data, offset);
             offset += 4;
+            return;
         }
 
-        // Update test info
+        if (remaining < 9) return;
+
+        byte optFlag = data[offset++];
+        sbyte llmScal = 0;
+        sbyte hlmScal = 0;
+
+        int afterOpt = data.Length - offset;
+        if (afterOpt >= 3)
+        {
+            _ = (sbyte)data[offset++]; // RES_SCAL
+            llmScal = (sbyte)data[offset++];
+            hlmScal = (sbyte)data[offset++];
+        }
+        else if (afterOpt == 8)
+        {
+            // 有 OPT_FLAG 但省略了三个比例字节时，直接跟两个 R4（比例按 0）
+            loLimit = ReadFloat(data, offset);
+            offset += 4;
+            hiLimit = ReadFloat(data, offset);
+            offset += 4;
+            if (offset < data.Length)
+                units = ReadCString(data, ref offset);
+            return;
+        }
+        else
+            return;
+
+        // OPT_FLAG: bit4/6 表示 LO 无效；bit5/7 表示 HI 无效
+        bool noLo = (optFlag & 0x10) != 0 || (optFlag & 0x40) != 0;
+        bool noHi = (optFlag & 0x20) != 0 || (optFlag & 0x80) != 0;
+
+        if (offset + 4 <= data.Length)
+        {
+            float loRaw = ReadFloat(data, offset);
+            offset += 4;
+            if (!noLo) loLimit = ApplyPtrScale(loRaw, llmScal);
+        }
+
+        if (offset + 4 <= data.Length)
+        {
+            float hiRaw = ReadFloat(data, offset);
+            offset += 4;
+            if (!noHi) hiLimit = ApplyPtrScale(hiRaw, hlmScal);
+        }
+
+        if (offset < data.Length)
+            units = ReadCString(data, ref offset);
+    }
+
+    private static float ApplyPtrScale(float raw, sbyte scal) =>
+        scal == 0 ? raw : raw * (float)Math.Pow(10, scal);
+
+    private void MergeTestInfo(uint testNum, string testName, float? loLimit, float? hiLimit, string units)
+    {
         if (!_testInfos.ContainsKey(testNum))
         {
             _testInfos[testNum] = new TestInfo
@@ -233,20 +294,21 @@ public class StdfParser
                 TestNum = testNum,
                 TestName = testName,
                 LoLimit = loLimit,
-                HiLimit = hiLimit
+                HiLimit = hiLimit,
+                Units = units ?? ""
             };
-        }
-        else if (string.IsNullOrEmpty(_testInfos[testNum].TestName) && !string.IsNullOrEmpty(testName))
-        {
-            _testInfos[testNum].TestName = testName;
+            return;
         }
 
-        // Store result for the active part at this site
-        if (_activeParts.TryGetValue(siteNum, out var partKey) &&
-            _partDataMap.TryGetValue(partKey, out var part))
-        {
-            part.TestResults[testNum] = result;
-        }
+        var t = _testInfos[testNum];
+        if (string.IsNullOrEmpty(t.TestName) && !string.IsNullOrEmpty(testName))
+            t.TestName = testName;
+        if (!t.LoLimit.HasValue && loLimit.HasValue)
+            t.LoLimit = loLimit;
+        if (!t.HiLimit.HasValue && hiLimit.HasValue)
+            t.HiLimit = hiLimit;
+        if (string.IsNullOrEmpty(t.Units) && !string.IsNullOrEmpty(units))
+            t.Units = units;
     }
 
     private void ParseFtr(byte[] data)

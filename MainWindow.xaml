@@ -8,7 +8,8 @@
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}"
         AllowDrop="True"
-        Drop="Window_Drop" DragOver="Window_DragOver">
+        Drop="Window_Drop" DragOver="Window_DragOver"
+        Loaded="MainWindow_Loaded">
 
     <Window.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVis" />
@@ -73,6 +74,15 @@
                             Click="BtnAddFile_Click" Margin="0,0,8,0" />
                     <Button Content="导出CSV" Style="{StaticResource ModernButton}"
                             Command="{Binding ExportCsvCommand}"
+                            IsEnabled="{Binding HasData}" Margin="0,0,8,0" />
+                    <Button Content="转TXT文件" Style="{StaticResource ModernButton}"
+                            Command="{Binding ExportTxtMapCommand}"
+                            IsEnabled="{Binding HasData}" Margin="0,0,8,0" />
+                    <Button Content="生成TMB文件" Style="{StaticResource ModernButton}"
+                            Command="{Binding ExportTmbCommand}"
+                            IsEnabled="{Binding HasData}" Margin="0,0,8,0" />
+                    <Button Content="转标准文件" Style="{StaticResource ModernButton}"
+                            Command="{Binding ExportStandardExcelCommand}"
                             IsEnabled="{Binding HasData}" Margin="0,0,8,0" />
                     <Button Content="返回队列" Style="{StaticResource ModernButton}"
                             Click="BtnBackToQueue_Click"
@@ -428,7 +438,7 @@
                                         <TextBlock Text="良率" Foreground="{StaticResource FgDimBrush}" FontSize="13" />
                                         <TextBlock FontSize="32" FontWeight="Bold"
                                                    Foreground="{Binding CurrentResult.FileInfo.Yield, Converter={StaticResource YieldColor}}"
-                                                   Text="{Binding CurrentResult.FileInfo.Yield, StringFormat={}{0:F1}%}" />
+                                                   Text="{Binding CurrentResult.FileInfo.Yield, StringFormat={}{0:F2}%}" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -549,7 +559,19 @@
                 <!-- Wafer map tab -->
                 <TabItem Header="晶圆图">
                     <Grid Margin="16">
-                        <controls:WaferMapControl x:Name="WaferMap" />
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="当前显示: SBin" x:Name="TxtBinMode"
+                                       Foreground="{StaticResource FgDimBrush}"
+                                       FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button x:Name="BtnToggleBin" Content="切换为 HBin"
+                                    Style="{StaticResource ModernButton}"
+                                    Click="BtnToggleBin_Click" Padding="12,5" FontSize="13" />
+                        </StackPanel>
+                        <controls:WaferMapControl x:Name="WaferMap" Grid.Row="1" />
                     </Grid>
                 </TabItem>
 
@@ -565,7 +587,7 @@
                                 <DataGridTextColumn Header="芯片数" Binding="{Binding FileInfo.TotalParts}" Width="80" />
                                 <DataGridTextColumn Header="通过" Binding="{Binding FileInfo.PassCount}" Width="80" />
                                 <DataGridTextColumn Header="失败" Binding="{Binding FileInfo.FailCount}" Width="80" />
-                                <DataGridTextColumn Header="良率" Binding="{Binding FileInfo.Yield, StringFormat=F1}" Width="80" />
+                                <DataGridTextColumn Header="良率" Binding="{Binding FileInfo.Yield, StringFormat=F2}" Width="80" />
                                 <DataGridTextColumn Header="测试项" Binding="{Binding FileInfo.TestCount}" Width="80" />
                                 <DataGridTextColumn Header="耗时(ms)" Binding="{Binding ParseDuration.TotalMilliseconds, StringFormat=F0}" Width="100" />
                             </DataGrid.Columns>

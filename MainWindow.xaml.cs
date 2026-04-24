@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using StdfAnalyzer.Services;
 using StdfAnalyzer.ViewModels;
 
 namespace StdfAnalyzer;
@@ -33,6 +34,19 @@ public partial class MainWindow : Window
                 });
             }
         };
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        new WelcomeDialog { Owner = this }.ShowDialog();
+        try
+        {
+            await AppUpdateChecker.CheckAfterStartupAsync(this).ConfigureAwait(true);
+        }
+        catch
+        {
+            // 更新检查失败不影响主流程
+        }
     }
 
     #region Window-level Drop: Add files to queue
@@ -204,4 +218,12 @@ public partial class MainWindow : Window
     }
 
     #endregion
+
+    private void BtnToggleBin_Click(object sender, RoutedEventArgs e)
+    {
+        bool showHBin = !WaferMap.ShowHBin;
+        WaferMap.ShowHBin = showHBin;
+        BtnToggleBin.Content = showHBin ? "切换为 SBin" : "切换为 HBin";
+        TxtBinMode.Text = showHBin ? "当前显示: HBin" : "当前显示: SBin";
+    }
 }

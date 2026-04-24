@@ -13,10 +13,20 @@ public class WaferMapControl : Control
         DependencyProperty.Register(nameof(Parts), typeof(List<PartData>), typeof(WaferMapControl),
             new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnPartsChanged));
 
+    public static readonly DependencyProperty ShowHBinProperty =
+        DependencyProperty.Register(nameof(ShowHBin), typeof(bool), typeof(WaferMapControl),
+            new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender, OnBinModeChanged));
+
     public List<PartData>? Parts
     {
         get => (List<PartData>?)GetValue(PartsProperty);
         set => SetValue(PartsProperty, value);
+    }
+
+    public bool ShowHBin
+    {
+        get => (bool)GetValue(ShowHBinProperty);
+        set => SetValue(ShowHBinProperty, value);
     }
 
     private static readonly Brush PassBrush = new SolidColorBrush(Color.FromRgb(76, 175, 80));
@@ -63,6 +73,14 @@ public class WaferMapControl : Control
         ClipToBounds = true;
         Focusable = true;
         SizeChanged += (_, _) => _layoutDirty = true;
+    }
+
+    private static void OnBinModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var ctrl = (WaferMapControl)d;
+        ctrl._textCache.Clear();
+        ctrl._shadowTextCache.Clear();
+        ctrl.InvalidateVisual();
     }
 
     private static void OnPartsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -214,11 +232,12 @@ public class WaferMapControl : Control
         dc.DrawDrawing(_mapCache);
         dc.Pop();
 
-        // Draw SBin text only for visible cells when zoomed in enough
+        // Draw bin text only for visible cells when zoomed in enough
+        bool useHBin = ShowHBin;
         if (cellSize >= MinCellForText && _coordLookup != null)
         {
             double fontSize = Math.Clamp(cellSize * 0.38, 7, 28);
-            EnsureTextCache(fontSize, parts);
+            EnsureTextCache(fontSize, parts, useHBin);
 
             int visMinDx = Math.Max(0, (int)Math.Floor(-ox / cellSize));
             int visMaxDx = Math.Min(_rangeX - 1, (int)Math.Ceiling((ActualWidth - ox) / cellSize));
@@ -231,12 +250,13 @@ public class WaferMapControl : Control
                 {
                     if (!_coordLookup.TryGetValue(CoordKey(dx, dy), out var p)) continue;
 
-                    if (_textCache.TryGetValue(p.SoftBin, out var ft))
+                    ushort binVal = useHBin ? p.HardBin : p.SoftBin;
+                    if (_textCache.TryGetValue(binVal, out var ft))
                     {
                         double sx = ox + dx * cellSize + (cellSize - ft.Width) / 2;
                         double sy = oy + dy * cellSize + (cellSize - ft.Height) / 2;
 
-                        if (_shadowTextCache.TryGetValue(p.SoftBin, out var shadow))
+                        if (_shadowTextCache.TryGetValue(binVal, out var shadow))
                             dc.DrawText(shadow, new Point(sx + 0.8, sy + 0.8));
                         dc.DrawText(ft, new Point(sx, sy));
                     }
@@ -266,21 +286,26 @@ public class WaferMapControl : Control
         }
     }
 
-    private void EnsureTextCache(double fontSize, List<PartData> parts)
+    private bool _cachedUseHBin;
+
+    private void EnsureTextCache(double fontSize, List<PartData> parts, bool useHBin)
     {
-        if (Math.Abs(fontSize - _cachedFontSize) < 0.5 && _textCache.Count > 0) return;
+        if (Math.Abs(fontSize - _cachedFontSize) < 0.5 && _cachedUseHBin == useHBin && _textCache.Count > 0)
+            return;
 
         _textCache.Clear();
         _shadowTextCache.Clear();
         _cachedFontSize = fontSize;
+        _cachedUseHBin = useHBin;
 
         var seenBins = new HashSet<ushort>();
         foreach (var p in parts)
         {
-            if (!seenBins.Add(p.SoftBin)) continue;
-            var text = p.SoftBin.ToString();
-            _textCache[p.SoftBin] = MakeText(text, fontSize, TextBrush);
-            _shadowTextCache[p.SoftBin] = MakeText(text, fontSize, TextShadowBrush);
+            ushort binVal = useHBin ? p.HardBin : p.SoftBin;
+            if (!seenBins.Add(binVal)) continue;
+            var text = binVal.ToString();
+            _textCache[binVal] = MakeText(text, fontSize, TextBrush);
+            _shadowTextCache[binVal] = MakeText(text, fontSize, TextShadowBrush);
         }
     }
 

@@ -27,6 +27,7 @@ public class TestInfo
 {
     public uint TestNum { get; set; }
     public string TestName { get; set; } = "";
+    public string Units { get; set; } = "";
     public float? LoLimit { get; set; }
     public float? HiLimit { get; set; }
     public string ColumnName => $"T{TestNum}";
