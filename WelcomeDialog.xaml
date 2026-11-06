@@ -1,0 +1,98 @@
+<Window x:Class="StdfAnalyzer.WelcomeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="欢迎使用 STDF Analyzer"
+        Width="560"
+        MinHeight="420"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}"
+        ShowInTaskbar="False">
+
+    <Border Background="{StaticResource BgLightBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10">
+        <Border Background="{StaticResource BgBrush}" BorderThickness="4,0,0,0" BorderBrush="{StaticResource AccentBrush}" CornerRadius="9">
+            <Grid Margin="28,24,28,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,16">
+                <TextBlock Text="STDF Analyzer"
+                           FontSize="28"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource AccentBrush}" />
+                <TextBlock Text="欢迎使用"
+                           FontSize="20"
+                           FontWeight="Light"
+                           Foreground="{StaticResource FgBrush}"
+                           Margin="0,6,0,0" />
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          MaxHeight="380"
+                          Padding="0,0,8,0">
+                <StackPanel>
+                    <Border Margin="0,0,0,20"
+                            Padding="14,12"
+                            Background="{StaticResource BgCardBrush}"
+                            CornerRadius="8"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="联系与反馈"
+                                       FontSize="17"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Margin="0,0,0,8" />
+                            <TextBlock FontSize="16"
+                                       LineHeight="26"
+                                       Foreground="{StaticResource FgBrush}"
+                                       TextWrapping="Wrap">
+                                如有问题或优化需求，请联系：<LineBreak />
+                                上海华天 IT部 吴宇涵
+                            </TextBlock>
+                            <TextBlock Margin="0,8,0,0"
+                                       FontSize="16"
+                                       Foreground="{StaticResource FgDimBrush}"
+                                       TextWrapping="Wrap">
+                                邮箱：
+                                <Hyperlink NavigateUri="mailto:yuhan.wu_sh@ht-tech.com"
+                                           RequestNavigate="Hyperlink_RequestNavigate">
+                                    <Run Text="yuhan.wu_sh@ht-tech.com" Foreground="{StaticResource AccentBrush}" />
+                                </Hyperlink>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="功能介绍"
+                               FontSize="17"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource AccentBrush}"
+                               Margin="0,0,0,10" />
+                    <TextBlock x:Name="BodyText"
+                               FontSize="16"
+                               LineHeight="26"
+                               Foreground="{StaticResource FgBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <Button Grid.Row="2"
+                    Content="知道了"
+                    Style="{StaticResource ModernButton}"
+                    HorizontalAlignment="Right"
+                    MinWidth="120"
+                    FontSize="16"
+                    Padding="22,12"
+                    Margin="0,20,0,0"
+                    IsDefault="True"
+                    IsCancel="True"
+                    Click="Ok_Click" />
+            </Grid>
+        </Border>
+    </Border>
+</Window>

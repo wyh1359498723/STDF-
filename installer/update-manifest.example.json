@@ -1,0 +1,6 @@
+{
+  "version": "1.4.0",
+  "downloadUrl": "https://your-server.example.com/releases/STDF_Analyzer_Setup_1.4.0.exe",
+  "sha256": "",
+  "releaseNotes": "示例：填写更新说明；sha256 为 64 位十六进制时可开启安装包校验。"
+}

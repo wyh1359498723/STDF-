@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  放到与 update.json、安装包同一目录（站点物理路径），改名为 web.config。
+  用于：允许通过 HTTP 下载 .exe；若仅加 MIME 报「重复项」，可删掉 <staticContent> 整段，只保留 requestFiltering。
+-->
+<configuration>
+  <system.webServer>
+    <security>
+      <requestFiltering>
+        <fileExtensions>
+          <remove fileExtension=".exe" />
+          <add fileExtension=".exe" allowed="true" />
+        </fileExtensions>
+      </requestFiltering>
+    </security>
+    <staticContent>
+      <remove fileExtension=".exe" />
+      <mimeMap fileExtension=".exe" mimeType="application/octet-stream" />
+    </staticContent>
+  </system.webServer>
+</configuration>

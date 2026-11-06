@@ -1,0 +1,68 @@
+<Window x:Class="StdfAnalyzer.TmbBinChoiceDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="导出 TMB"
+        Width="440"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}"
+        ShowInTaskbar="False">
+
+    <Border Background="{StaticResource BgLightBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10">
+        <Border Background="{StaticResource BgBrush}" BorderThickness="4,0,0,0" BorderBrush="{StaticResource AccentBrush}" CornerRadius="9">
+            <StackPanel Margin="28,22,28,22">
+                <TextBlock Text="导出 TMB"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           Foreground="{StaticResource AccentBrush}" />
+                <TextBlock Text="请选择使用的 Bin 类型"
+                           FontSize="15"
+                           Foreground="{StaticResource FgBrush}"
+                           TextWrapping="Wrap"
+                           Margin="0,8,0,20" />
+
+                <Button Content="使用HBin"
+                        Style="{StaticResource ModernButton}"
+                        FontSize="14"
+                        Padding="18,12"
+                        Margin="0,0,0,10"
+                        Click="HardBin_Click" />
+                <Button Content="使用 SBin"
+                        Style="{StaticResource ModernButton}"
+                        FontSize="14"
+                        Padding="18,12"
+                        Margin="0,0,0,16"
+                        Click="SoftBin_Click" />
+
+                <Button Content="取消"
+                        IsCancel="True"
+                        FontSize="14"
+                        Padding="18,10"
+                        HorizontalAlignment="Stretch"
+                        Cursor="Hand"
+                        Background="{StaticResource BgCardBrush}"
+                        Foreground="{StaticResource FgBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        Click="Cancel_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="b" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="b" Property="Background" Value="{StaticResource BgLightBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Border>
+</Window>
